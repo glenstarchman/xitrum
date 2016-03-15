@@ -26,7 +26,11 @@ object Server {
    * Starts with the default ChannelInitializer provided by Xitrum.
    */
   def start(): Seq[EventLoopGroup] = {
-    start(new DefaultHttpChannelInitializer)
+    start(new DefaultHttpChannelInitializer, None)
+  }
+
+  def start(port: Int): Seq[EventLoopGroup] = {
+    start(new DefaultHttpChannelInitializer, Option(port))
   }
 
   /**
@@ -34,7 +38,7 @@ object Server {
    * xitrum.handler.DefaultHttpChannelInitializer.
    * SSL codec handler will be automatically prepended for HTTPS server.
    */
-  def start(httpChannelInitializer: ChannelInitializer[SocketChannel]): Seq[EventLoopGroup] = {
+  def start(httpChannelInitializer: ChannelInitializer[SocketChannel], portNumber: Option[Int]): Seq[EventLoopGroup] = {
     Config.xitrum.loadExternalEngines()
 
     // Trick to start actorRegistry on startup
@@ -50,8 +54,8 @@ object Server {
 
     // Lastly, start the server(s) after necessary things have been prepared
     val portConfig = Config.xitrum.port
-    if (portConfig.http.isDefined)  eventLoopGroups = eventLoopGroups ++ doStart(false, httpChannelInitializer)
-    if (portConfig.https.isDefined) eventLoopGroups = eventLoopGroups ++ doStart(true,  httpChannelInitializer)
+    if (portConfig.http.isDefined)  eventLoopGroups = eventLoopGroups ++ doStart(false, httpChannelInitializer, portNumber)
+    if (portConfig.https.isDefined) eventLoopGroups = eventLoopGroups ++ doStart(true,  httpChannelInitializer, portNumber)
 
     // Flash socket server may use same port with HTTP server
     if (portConfig.flashSocketPolicy.isDefined) {
@@ -74,7 +78,7 @@ object Server {
 
   //----------------------------------------------------------------------------
 
-  private def doStart(https: Boolean, nonSslChannelInitializer: ChannelInitializer[SocketChannel]): Seq[EventLoopGroup] = {
+  private def doStart(https: Boolean, nonSslChannelInitializer: ChannelInitializer[SocketChannel], portNumber:  Option[Int] = None): Seq[EventLoopGroup] = {
     val channelInitializer =
       if (https)
         new SslChannelInitializer(nonSslChannelInitializer)
@@ -83,8 +87,16 @@ object Server {
 
     val (bootstrap, groups) = Bootstrap.newBootstrap(channelInitializer)
 
-    val portConfig      = Config.xitrum.port
-    val (service, port) = if (https) ("HTTPS", portConfig.https.get) else ("HTTP", portConfig.http.get)
+    val portConfig  = Config.xitrum.port
+    val (service, port) = portNumber match {
+      case Some(p) => if (https) {
+        ("HTTPS", p)
+      } else {
+        ("HTTP", p)
+      }
+
+      case _ => if (https) ("HTTPS", portConfig.https.get) else ("HTTP", portConfig.http.get)
+    }
 
     NetOption.bind(service, bootstrap, port, groups)
 
